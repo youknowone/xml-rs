@@ -1326,3 +1326,17 @@ fn test_entity_nesting_depth_limit() {
     let xml = r#"<!DOCTYPE r [<!ENTITY a "&a;">]><r>&a;</r>"#;
     assert!(collect_characters(xml).is_err());
 }
+
+#[test]
+fn test_entity_expansion_length_limit() {
+    // `&l9;` expands to 3 * 10^9 characters
+    let mut dtd = String::from(r#"<!ENTITY l0 "lol">"#);
+    for i in 1..=9 {
+        dtd.push_str(&format!(r#"<!ENTITY l{i} "{}">"#, format!("&l{};", i - 1).repeat(10)));
+    }
+    let xml = format!("<!DOCTYPE r [{dtd}]><r>&l4;</r>");
+    assert_eq!(collect_characters(&xml).unwrap().len(), 30_000);
+    let xml = format!("<!DOCTYPE r [{dtd}]><r>&l9;</r>");
+    let err = collect_characters(&xml).unwrap_err();
+    assert!(matches!(err.kind(), xml::reader::ErrorKind::Syntax(s) if s.contains("Entity too big")), "{err}");
+}

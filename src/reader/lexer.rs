@@ -231,6 +231,8 @@ pub(crate) struct Lexer {
     inside_token: bool,
     eof_handled: bool,
     reparse_depth: u8,
+    /// Length of the replacement texts reparsed since the queue was last empty
+    reparse_length: usize,
     last_was_cr: bool,
     #[cfg(test)]
     skip_errors: bool,
@@ -259,6 +261,7 @@ impl Lexer {
             inside_token: false,
             eof_handled: false,
             reparse_depth: 0,
+            reparse_length: 0,
             last_was_cr: false,
             #[cfg(test)]
             skip_errors: false,
@@ -320,6 +323,7 @@ impl Lexer {
         }
         // if char_queue is empty, all circular reparsing is done
         self.reparse_depth = 0;
+        self.reparse_length = 0;
         while let Some(mut c) = self.reader.next_char_from(b)? {
             if self.last_was_cr && c == '\n' {
                 self.last_was_cr = false;
@@ -428,7 +432,8 @@ impl Lexer {
         }
 
         self.reparse_depth += 1;
-        if self.reparse_depth > self.max_entity_expansion_depth || self.char_queue.len() > self.max_entity_expansion_length {
+        self.reparse_length += markup.len();
+        if self.reparse_depth > self.max_entity_expansion_depth || self.reparse_length > self.max_entity_expansion_length {
             return Err(self.error(SyntaxError::EntityTooBig));
         }
 
