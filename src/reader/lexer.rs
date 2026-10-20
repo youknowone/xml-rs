@@ -224,7 +224,8 @@ pub(crate) struct Lexer {
     reader: CharReader,
     pos: TextPosition,
     head_pos: TextPosition,
-    char_queue: VecDeque<char>,
+    /// `None` marks the end of a reparsed entity replacement text
+    char_queue: VecDeque<Option<char>>,
     /// Default state to go back to after a tag end (may be `InsideDoctype`)
     normal_state: State,
     inside_token: bool,
@@ -308,6 +309,10 @@ impl Lexer {
 
         // Check if we have saved a char or two for ourselves
         while let Some(c) = self.char_queue.pop_front() {
+            let Some(c) = c else {
+                self.reparse_depth -= 1;
+                continue;
+            };
             if let Some(t) = self.dispatch_char(c)? {
                 self.inside_token = false;
                 return Ok(t);
@@ -412,7 +417,7 @@ impl Lexer {
 
     fn move_to_with_unread(&mut self, st: State, cs: &[char], token: Token) -> Token {
         for c in cs.iter().rev().copied() {
-            self.char_queue.push_front(c);
+            self.char_queue.push_front(Some(c));
         }
         self.move_to_with(st, token)
     }
@@ -428,9 +433,10 @@ impl Lexer {
         }
 
         self.reset_eof_handled();
-        self.char_queue.reserve(markup.len());
+        self.char_queue.reserve(markup.len() + 1);
+        self.char_queue.push_front(None);
         for c in markup.chars().rev() {
-            self.char_queue.push_front(c);
+            self.char_queue.push_front(Some(c));
         }
 
         Ok(())
@@ -444,8 +450,8 @@ impl Lexer {
         if self.skip_errors {
             let mut chars = chunk.chars();
             let first = chars.next().unwrap_or('\0');
-            self.char_queue.extend(chars);
-            self.char_queue.push_back(c);
+            self.char_queue.extend(chars.map(Some));
+            self.char_queue.push_back(Some(c));
             return Ok(Some(self.move_to_with(State::Normal, Token::Character(first))));
         }
         Err(self.error(SyntaxError::UnexpectedTokenBefore(chunk, c)))

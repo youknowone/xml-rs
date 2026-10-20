@@ -1291,3 +1291,38 @@ fn declared_namespaces_follow_element_events() {
         r#"(other) None"#,           // EndDocument
     ]);
 }
+
+fn collect_characters(xml: &str) -> Result<String> {
+    let mut text = String::new();
+    for event in EventReader::from_str(xml) {
+        if let XmlEvent::Characters(s) = event? {
+            text.push_str(&s);
+        }
+    }
+    Ok(text)
+}
+
+#[test]
+fn test_entity_sibling_references_do_not_count_as_depth() {
+    let xml = r#"<!DOCTYPE r [<!ENTITY b "x"><!ENTITY a "&b;&b;&b;&b;&b;&b;&b;&b;&b;&b;&b;&b;">]><r>&a;</r>"#;
+    assert_eq!(collect_characters(xml).unwrap(), "x".repeat(12));
+
+    let xml = r#"<!DOCTYPE r [<!ENTITY b "x"><!ENTITY a "&b;&b;&b;&b;&b;&b;&b;&b;&b;&b;&b;&b;">]><r>&a;&a;</r>"#;
+    assert_eq!(collect_characters(xml).unwrap(), "x".repeat(24));
+}
+
+#[test]
+fn test_entity_nesting_depth_limit() {
+    // `&eN;` expands N nested entities
+    let mut dtd = String::from(r#"<!ENTITY e1 "x">"#);
+    for i in 2..=11 {
+        dtd.push_str(&format!(r#"<!ENTITY e{i} "&e{};">"#, i - 1));
+    }
+    let xml = format!("<!DOCTYPE r [{dtd}]><r>&e10;</r>");
+    assert_eq!(collect_characters(&xml).unwrap(), "x");
+    let xml = format!("<!DOCTYPE r [{dtd}]><r>&e11;</r>");
+    assert!(collect_characters(&xml).is_err());
+
+    let xml = r#"<!DOCTYPE r [<!ENTITY a "&a;">]><r>&a;</r>"#;
+    assert!(collect_characters(xml).is_err());
+}
